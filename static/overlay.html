@@ -75,11 +75,13 @@ async function checkDonate() {
 
         const data = await response.json();
 
-        if (!data.tts || data.tts === lastId) {
+        const eventId = data.id || data.tts || `${data.name}-${data.amount_number}-${data.message}`;
+
+        if (!eventId || eventId === lastId) {
             return;
         }
 
-        lastId = data.tts;
+        lastId = eventId;
         showAlert(data);
     } catch (error) {
         console.error("OVERLAY UPDATE ERROR", error);
@@ -111,7 +113,11 @@ function showAlert(data) {
     gifNode.style.display = data.gif ? "block" : "none";
 
     donateSound.src = `/media/${encodeURI(data.sound)}`;
-    ttsSound.src = `/media/${encodeURI(data.tts)}`;
+    if (data.tts) {
+        ttsSound.src = `/media/${encodeURI(data.tts)}`;
+    } else {
+        ttsSound.removeAttribute("src");
+    }
 
     alertBox.classList.remove("show");
     void alertBox.offsetWidth;
@@ -119,10 +125,12 @@ function showAlert(data) {
 
     donateSound.play().catch(() => {});
     donateSound.onended = () => {
-        ttsSound.play().catch(() => {});
+        if (data.tts) {
+            ttsSound.play().catch(() => {});
+        }
     };
 
-    ttsSound.onended = hideAlert;
+    ttsSound.onended = data.tts ? hideAlert : null;
     hideTimeout = setTimeout(hideAlert, 12000);
 }
 

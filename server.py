@@ -3,6 +3,7 @@ from pathlib import Path
 from urllib.parse import unquote_plus
 
 import json
+import os
 import re
 import subprocess
 import uuid
@@ -14,6 +15,7 @@ app = Flask(__name__)
 CORS(app)
 
 BASE_DIR = Path(__file__).resolve().parent
+RUNNING_ON_VERCEL = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_URL"))
 STATIC_DIR = BASE_DIR / "static"
 DATA_DIR = BASE_DIR / "data"
 ASSETS_DIR = BASE_DIR / "assets"
@@ -44,6 +46,21 @@ DEFAULT_GOAL["achievement_text"] = "\u0421\u041f\u0410\u0421\u0418\u0411\u041e \
 
 last_donate = {}
 donate_totals = {}
+goal_cache = None
+
+
+def safe_print(*values, **kwargs):
+    sep = kwargs.pop("sep", " ")
+    end = kwargs.pop("end", "\n")
+    file = kwargs.pop("file", None)
+    flush = kwargs.pop("flush", False)
+    text = sep.join(str(value) for value in values)
+
+    try:
+        print(text, end=end, file=file, flush=flush)
+    except UnicodeEncodeError:
+        safe_text = text.encode("ascii", "backslashreplace").decode("ascii")
+        print(safe_text, end=end, file=file, flush=flush)
 
 
 def load_json_file(path, default):
@@ -58,9 +75,14 @@ def load_json_file(path, default):
 
 
 def save_json_file(path, data):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as file:
-        json.dump(data, file, ensure_ascii=False, indent=2)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as file:
+            json.dump(data, file, ensure_ascii=False, indent=2)
+        return True
+    except OSError as error:
+        safe_print(f"JSON SAVE WARNING: {path}: {error}")
+        return False
 
 
 def coerce_int(value, fallback=0):
@@ -184,17 +206,26 @@ def normalize_goal_data(raw_goal):
 
 
 def load_goal_data():
+    global goal_cache
+
+    if RUNNING_ON_VERCEL and goal_cache is not None:
+        return deepcopy(goal_cache)
+
     raw_goal = load_json_file(GOAL_FILE, DEFAULT_GOAL)
     goal = normalize_goal_data(raw_goal)
+    goal_cache = goal
 
     if raw_goal != goal:
         save_json_file(GOAL_FILE, goal)
 
-    return goal
+    return deepcopy(goal)
 
 
 def save_goal_data(goal):
-    save_json_file(GOAL_FILE, normalize_goal_data(goal))
+    global goal_cache
+
+    goal_cache = normalize_goal_data(goal)
+    save_json_file(GOAL_FILE, goal_cache)
 
 
 def build_goal_payload(goal):
@@ -263,6 +294,9 @@ def choose_effects(amount_number):
 
 
 def generate_tts_file(name, amount_text, message):
+    if RUNNING_ON_VERCEL:
+        return ""
+
     if message:
         tts_text = f"{name} задонатил {amount_text}. {message}"
     else:
@@ -283,10 +317,15 @@ def generate_tts_file(name, amount_text, message):
                 "--write-media",
                 str(tts_file),
             ],
-            check=False,
+            check=True,
+            timeout=20,
         )
-    except Exception as error:
-        print("TTS ERROR:", error)
+    except (OSError, subprocess.SubprocessError) as error:
+        safe_print("TTS ERROR:", error)
+        return ""
+
+    if not tts_file.exists():
+        return ""
 
     return normalize_media_path(tts_filename, "tts")
 
@@ -302,7 +341,7 @@ def process_donation(name, amount_number, message="", amount_text=None, apply_al
     if apply_alias:
         aliases = load_aliases()
         if clean_name in aliases:
-            print(f"ALIAS APPLIED: {clean_name} -> {aliases[clean_name]}")
+            safe_print(f"ALIAS APPLIED: {clean_name} -> {aliases[clean_name]}")
             clean_name = aliases[clean_name]
 
     donate_totals[clean_name] = donate_totals.get(clean_name, 0) + clean_amount
@@ -313,6 +352,7 @@ def process_donation(name, amount_number, message="", amount_text=None, apply_al
     tts_file = generate_tts_file(clean_name, clean_amount_text, clean_message)
 
     last_donate = {
+        "id": uuid.uuid4().hex,
         "amount": clean_amount_text,
         "amount_number": clean_amount,
         "name": clean_name,
@@ -324,7 +364,7 @@ def process_donation(name, amount_number, message="", amount_text=None, apply_al
         "goal_completion_count": goal_data["completion_count"],
     }
 
-    print("NEW DONATE:", last_donate)
+    safe_print("NEW DONATE:", last_donate)
     return last_donate
 
 
@@ -333,7 +373,7 @@ def donate():
     raw_text = request.form.get("text", "")
     text = unquote_plus(raw_text)
 
-    print("DECODED TEXT:\n", text)
+    safe_print("DECODED TEXT:\n", text)
 
     if not text.strip():
         return jsonify({"status": "empty"}), 200
