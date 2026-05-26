@@ -353,6 +353,22 @@ def is_donate_event_expired(donation, now_ms):
     return not created_at or now_ms - created_at > LAST_DONATE_TTL_MS
 
 
+def build_public_donate_payload(donation):
+    payload = dict(donation)
+
+    if RUNNING_ON_VERCEL:
+        payload["tts"] = ""
+
+    return payload
+
+
+def build_log_donate_payload(donation):
+    payload = dict(donation)
+    if payload.get("tts_data_url"):
+        payload["tts_data_url"] = "<embedded audio>"
+    return payload
+
+
 def generate_tts_file(name, amount_text, message):
     if message:
         tts_text = f"{name} задонатил {amount_text}. {message}"
@@ -424,7 +440,7 @@ def process_donation(name, amount_number, message="", amount_text=None, apply_al
         "goal_completion_count": goal_data["completion_count"],
     }
 
-    safe_print("NEW DONATE:", last_donate)
+    safe_print("NEW DONATE:", build_log_donate_payload(last_donate))
     return last_donate
 
 
@@ -479,7 +495,7 @@ def last():
         response.headers["Cache-Control"] = "no-store, max-age=0"
         return response
 
-    response = jsonify(last_donate)
+    response = jsonify(build_public_donate_payload(last_donate))
     response.headers["Cache-Control"] = "no-store, max-age=0"
     return response
 
@@ -527,7 +543,13 @@ def test_donate():
         amount_text=f"{format_amount(amount_number)} ₸",
     )
 
-    return jsonify({"status": "ok", "donation": donation, "goal": build_goal_payload(load_goal_data())})
+    return jsonify(
+        {
+            "status": "ok",
+            "donation": build_public_donate_payload(donation),
+            "goal": build_goal_payload(load_goal_data()),
+        }
+    )
 
 
 @app.route("/goal/test-achievement", methods=["POST"])
