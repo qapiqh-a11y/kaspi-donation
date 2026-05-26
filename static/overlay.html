@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/overlay.css">
+</head>
+<body>
+
+<div id="alertBox">
+    <div id="alertFrame">
+        <img id="gif" alt="Donation effect">
+        <div id="amountRow">
+            <div id="amount"></div>
+            <div id="currencyBadge"></div>
+        </div>
+        <div id="name"></div>
+        <div id="message"></div>
+    </div>
+
+    <audio id="donateSound"></audio>
+    <audio id="ttsSound"></audio>
+</div>
+
+<script>
+const alertBox = document.getElementById("alertBox");
+const gifNode = document.getElementById("gif");
+const amountNode = document.getElementById("amount");
+const currencyBadgeNode = document.getElementById("currencyBadge");
+const nameNode = document.getElementById("name");
+const messageNode = document.getElementById("message");
+const donateSound = document.getElementById("donateSound");
+const ttsSound = document.getElementById("ttsSound");
+
+let lastId = "";
+let hideTimeout = null;
+
+function getAmountParts(rawAmount) {
+    const trimmed = String(rawAmount || "").trim();
+    const match = trimmed.match(/^([\d\s.,]+)\s*(.*)$/u);
+
+    if (!match) {
+        return { value: trimmed, currency: "" };
+    }
+
+    return {
+        value: match[1].trim(),
+        currency: normalizeCurrency(match[2].trim())
+    };
+}
+
+function normalizeCurrency(currency) {
+    const upperCurrency = currency.replace(/\s+/g, "").toUpperCase();
+
+    if (!upperCurrency) {
+        return "";
+    }
+
+    if (["₸", "KZT", "ТГ", "ТЕНГЕ"].includes(upperCurrency)) {
+        return "₸";
+    }
+
+    return currency;
+}
+
+async function checkDonate() {
+    try {
+        const response = await fetch("/last", { cache: "no-store" });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (!data.tts || data.tts === lastId) {
+            return;
+        }
+
+        lastId = data.tts;
+        showAlert(data);
+    } catch (error) {
+        console.error("OVERLAY UPDATE ERROR", error);
+    }
+}
+
+function showAlert(data) {
+    if (hideTimeout) {
+        clearTimeout(hideTimeout);
+    }
+
+    donateSound.pause();
+    ttsSound.pause();
+    donateSound.currentTime = 0;
+    ttsSound.currentTime = 0;
+
+    const amountParts = getAmountParts(data.amount);
+
+    amountNode.textContent = `+ ${amountParts.value || data.amount}`;
+    currencyBadgeNode.textContent = amountParts.currency;
+    currencyBadgeNode.classList.toggle("is-hidden", !amountParts.currency);
+    currencyBadgeNode.dataset.currency = amountParts.currency || "none";
+
+    nameNode.textContent = data.name ? `От: ${data.name}` : "От: Аноним";
+    messageNode.textContent = data.message || "СПАСИБО ЗА ПОДДЕРЖКУ";
+    messageNode.classList.toggle("is-empty", !data.message);
+
+    gifNode.src = `/media/${encodeURI(data.gif)}`;
+    gifNode.style.display = data.gif ? "block" : "none";
+
+    donateSound.src = `/media/${encodeURI(data.sound)}`;
+    ttsSound.src = `/media/${encodeURI(data.tts)}`;
+
+    alertBox.classList.remove("show");
+    void alertBox.offsetWidth;
+    alertBox.classList.add("show");
+
+    donateSound.play().catch(() => {});
+    donateSound.onended = () => {
+        ttsSound.play().catch(() => {});
+    };
+
+    ttsSound.onended = hideAlert;
+    hideTimeout = setTimeout(hideAlert, 12000);
+}
+
+function hideAlert() {
+    alertBox.classList.remove("show");
+}
+
+checkDonate();
+setInterval(checkDonate, 1500);
+</script>
+
+</body>
+</html>

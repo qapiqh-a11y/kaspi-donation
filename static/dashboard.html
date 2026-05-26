@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body>
+
+<div class="page-shell">
+    <header class="hero">
+        <div>
+            <div class="eyebrow">KASPI DONATION CONTROL</div>
+            <h1>Kaspi Donate PRO</h1>
+            <p class="hero-copy">
+                Здесь можно поставить цель, вручную вбить уже собранную сумму, запустить тестовый донат
+                и отдельно проверить майнкрафт-анимацию закрытия сбора без правки кода.
+            </p>
+        </div>
+
+        <div class="hero-card">
+            <div class="hero-card-label">Текущий сбор</div>
+            <div class="hero-card-title" id="goalPreviewTitle">...</div>
+            <div class="hero-card-value" id="goalPreviewValue">0 / 0 ₸</div>
+        </div>
+    </header>
+
+    <main class="dashboard-grid">
+        <section class="card">
+            <div class="card-head">
+                <h2>Цель</h2>
+                <span class="card-tag">data/goal.json</span>
+            </div>
+
+            <form id="goalForm" class="form-stack">
+                <label>
+                    <span>Название цели</span>
+                    <input type="text" name="title" placeholder="Например: сбор на новый микрофон" required>
+                </label>
+
+                <div class="form-row">
+                    <label>
+                        <span>Сумма цели</span>
+                        <input type="number" name="target" min="1" step="1" required>
+                    </label>
+
+                    <label>
+                        <span>Уже собрано вручную</span>
+                        <input type="number" name="current" min="0" step="1" required>
+                    </label>
+                </div>
+
+                <div class="actions">
+                    <button type="submit">Сохранить цель</button>
+                    <button type="button" id="refreshGoalButton" class="ghost-button">Обновить поля</button>
+                </div>
+            </form>
+
+            <div class="status-message" id="goalStatusMessage"></div>
+        </section>
+
+        <section class="card">
+            <div class="card-head">
+                <h2>Тест Донат</h2>
+                <span class="card-tag">overlay check</span>
+            </div>
+
+            <form id="testDonateForm" class="form-stack">
+                <label>
+                    <span>Имя</span>
+                    <input type="text" name="name" value="Тестовый донат" required>
+                </label>
+
+                <div class="form-row">
+                    <label>
+                        <span>Сумма</span>
+                        <input type="number" name="amount" min="1" step="1" value="500" required>
+                    </label>
+
+                    <label>
+                        <span>Сообщение</span>
+                        <input type="text" name="message" value="Проверка overlay">
+                    </label>
+                </div>
+
+                <div class="actions">
+                    <button type="submit">Запустить тест</button>
+                    <button type="button" id="testAchievementButton" class="ghost-button">Тест ачивки</button>
+                </div>
+            </form>
+
+            <div class="status-message" id="donateStatusMessage"></div>
+        </section>
+
+        <section class="card">
+            <div class="card-head">
+                <h2>Overlay Ссылки</h2>
+                <span class="card-tag">obs / browser source</span>
+            </div>
+
+            <div class="link-list">
+                <a class="overlay-link" href="/overlay" target="_blank" rel="noreferrer">
+                    <span>Основной донат</span>
+                    <strong>/overlay</strong>
+                </a>
+
+                <a class="overlay-link" href="/goalview" target="_blank" rel="noreferrer">
+                    <span>Сбор / progress bar</span>
+                    <strong>/goalview</strong>
+                </a>
+
+                <a class="overlay-link" href="/topview" target="_blank" rel="noreferrer">
+                    <span>Топ донатеры</span>
+                    <strong>/topview</strong>
+                </a>
+
+                <a class="overlay-link" href="/health" target="_blank" rel="noreferrer">
+                    <span>Технический статус</span>
+                    <strong>/health</strong>
+                </a>
+            </div>
+        </section>
+    </main>
+</div>
+
+<script>
+const goalForm = document.getElementById("goalForm");
+const testDonateForm = document.getElementById("testDonateForm");
+const goalStatusMessage = document.getElementById("goalStatusMessage");
+const donateStatusMessage = document.getElementById("donateStatusMessage");
+const goalPreviewTitle = document.getElementById("goalPreviewTitle");
+const goalPreviewValue = document.getElementById("goalPreviewValue");
+const refreshGoalButton = document.getElementById("refreshGoalButton");
+const testAchievementButton = document.getElementById("testAchievementButton");
+const goalFields = {
+    title: goalForm.elements.namedItem("title"),
+    target: goalForm.elements.namedItem("target"),
+    current: goalForm.elements.namedItem("current")
+};
+const donateFields = {
+    name: testDonateForm.elements.namedItem("name"),
+    amount: testDonateForm.elements.namedItem("amount"),
+    message: testDonateForm.elements.namedItem("message")
+};
+
+function setStatus(element, text, state = "neutral") {
+    element.textContent = text;
+    element.dataset.state = state;
+}
+
+function fillGoalForm(goal) {
+    goalFields.title.value = goal.title;
+    goalFields.target.value = goal.target;
+    goalFields.current.value = goal.current;
+}
+
+function updateGoalPreview(goal) {
+    goalPreviewTitle.textContent = goal.title;
+    goalPreviewValue.textContent = `${goal.display_current} / ${goal.display_target} ${goal.currency}`;
+}
+
+async function loadGoal() {
+    const response = await fetch("/goal", { cache: "no-store" });
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+    }
+
+    const goal = await response.json();
+    fillGoalForm(goal);
+    updateGoalPreview(goal);
+    return goal;
+}
+
+goalForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const payload = {
+        title: goalFields.title.value,
+        target: Number(goalFields.target.value),
+        current: Number(goalFields.current.value)
+    };
+
+    setStatus(goalStatusMessage, "Сохраняю цель...", "neutral");
+
+    try {
+        const response = await fetch("/goal/update", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const result = await response.json();
+        fillGoalForm(result.goal);
+        updateGoalPreview(result.goal);
+        setStatus(goalStatusMessage, "Цель сохранена.", "success");
+    } catch (error) {
+        console.error("GOAL SAVE ERROR", error);
+        setStatus(goalStatusMessage, "Не получилось сохранить цель.", "error");
+    }
+});
+
+testDonateForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const payload = {
+        name: donateFields.name.value,
+        amount: Number(donateFields.amount.value),
+        message: donateFields.message.value
+    };
+
+    setStatus(donateStatusMessage, "Отправляю тестовый донат...", "neutral");
+
+    try {
+        const response = await fetch("/test-donate", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const result = await response.json();
+        updateGoalPreview(result.goal);
+        fillGoalForm(result.goal);
+        setStatus(donateStatusMessage, "Тестовый донат отправлен.", "success");
+    } catch (error) {
+        console.error("TEST DONATE ERROR", error);
+        setStatus(donateStatusMessage, "Тестовый донат не отправился.", "error");
+    }
+});
+
+refreshGoalButton.addEventListener("click", async () => {
+    setStatus(goalStatusMessage, "Обновляю данные цели...", "neutral");
+
+    try {
+        await loadGoal();
+        setStatus(goalStatusMessage, "Поля обновлены из текущего состояния.", "success");
+    } catch (error) {
+        console.error("GOAL REFRESH ERROR", error);
+        setStatus(goalStatusMessage, "Не получилось обновить данные.", "error");
+    }
+});
+
+testAchievementButton.addEventListener("click", async () => {
+    setStatus(donateStatusMessage, "Запускаю тест ачивки...", "neutral");
+
+    try {
+        const response = await fetch("/goal/test-achievement", {
+            method: "POST"
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const result = await response.json();
+        updateGoalPreview(result.goal);
+        fillGoalForm(result.goal);
+        setStatus(donateStatusMessage, "Тест ачивки запущен.", "success");
+    } catch (error) {
+        console.error("GOAL ACHIEVEMENT TEST ERROR", error);
+        setStatus(donateStatusMessage, "Не удалось запустить тест ачивки.", "error");
+    }
+});
+
+loadGoal().catch((error) => {
+    console.error("INITIAL LOAD ERROR", error);
+    setStatus(goalStatusMessage, "Не удалось загрузить текущую цель.", "error");
+});
+</script>
+
+</body>
+</html>

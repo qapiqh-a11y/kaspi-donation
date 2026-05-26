@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/top.css">
+</head>
+<body>
+
+<div id="container">
+    <div id="title" aria-label="ТОП ДОНАТЕРЫ">ТОП ДОНАТЕРЫ</div>
+    <div id="top"></div>
+</div>
+
+<script>
+const titleElement = document.getElementById("title");
+const topElement = document.getElementById("top");
+const numberFormatter = new Intl.NumberFormat("ru-RU");
+
+titleElement.textContent = "ТОП ДОНАТЕРЫ";
+
+function formatAmount(value) {
+    return numberFormatter.format(value).replace(/\s+/g, ".");
+}
+
+function buildAnimatedText(text, className) {
+    const node = document.createElement("div");
+    node.className = className;
+
+    [...String(text || "")].forEach((char, index) => {
+        const span = document.createElement("span");
+        span.className = `${className}-char`;
+        span.style.setProperty("--char-delay", `${index * 0.06}s`);
+        span.textContent = char;
+
+        if (char === " ") {
+            span.classList.add("is-space");
+        }
+
+        node.appendChild(span);
+    });
+
+    return node;
+}
+
+function buildPlainText(text, className) {
+    const node = document.createElement("div");
+    node.className = className;
+    node.textContent = text;
+    return node;
+}
+
+function buildRankRow(name, amount, index) {
+    const row = document.createElement("div");
+    const tierClass = ["rank--first", "rank--second", "rank--third"][index] || "rank--normal";
+    const isTopThree = index < 3;
+    row.className = `rank ${tierClass}`;
+
+    const badge = document.createElement("div");
+    badge.className = "rank-index";
+    badge.textContent = `#${index + 1}`;
+
+    const donorName = name || "Аноним";
+    const formattedAmount = `${formatAmount(amount)} ₸`;
+
+    const nameNode = isTopThree
+        ? buildAnimatedText(donorName, "rank-name")
+        : buildPlainText(donorName, "rank-name");
+
+    const amountNode = isTopThree
+        ? buildAnimatedText(formattedAmount, "rank-amount")
+        : buildPlainText(formattedAmount, "rank-amount");
+
+    row.appendChild(badge);
+    row.appendChild(nameNode);
+    row.appendChild(amountNode);
+
+    return row;
+}
+
+function syncRankWidths() {
+    const rows = [...topElement.querySelectorAll(".rank:not(.rank--empty)")];
+
+    if (rows.length === 0) {
+        topElement.style.removeProperty("--uniform-rank-width");
+        return;
+    }
+
+    rows.forEach((row) => {
+        row.style.width = "auto";
+    });
+
+    const maxWidth = Math.max(...rows.map((row) => row.getBoundingClientRect().width));
+    topElement.style.setProperty("--uniform-rank-width", `${Math.ceil(maxWidth)}px`);
+}
+
+function renderEmptyState() {
+    topElement.style.removeProperty("--uniform-rank-width");
+    topElement.innerHTML = `
+        <div class="rank rank--empty">
+            <div class="empty-label">ПОКА НЕТ ДОНАТОВ</div>
+        </div>
+    `;
+}
+
+function renderTop(data) {
+    topElement.textContent = "";
+
+    if (!Array.isArray(data) || data.length === 0) {
+        renderEmptyState();
+        return;
+    }
+
+    data.forEach(([name, amount], index) => {
+        topElement.appendChild(buildRankRow(name, amount, index));
+    });
+
+    requestAnimationFrame(syncRankWidths);
+}
+
+async function updateTop() {
+    try {
+        const response = await fetch("/top", { cache: "no-store" });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        renderTop(await response.json());
+    } catch (error) {
+        console.error("TOP UPDATE ERROR", error);
+        renderEmptyState();
+    }
+}
+
+updateTop();
+setInterval(updateTop, 5000);
+window.addEventListener("resize", syncRankWidths);
+</script>
+
+</body>
+</html>

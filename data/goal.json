@@ -1,0 +1,14 @@
+{
+  "title": "На Вебку",
+  "subtitle": "",
+  "target": 90000,
+  "current": 9233,
+  "currency": "₸",
+  "celebration_gif": "effects/4444.gif",
+  "celebration_sound": "sounds/minecraft-rare-achievement.mp3",
+  "achievement_label": "ЦЕЛЬ ПО ДОНАТАМ ДОСТИГНУТА!",
+  "achievement_text": "СПАСИБО ЗА ПОДДЕРЖКУ СТРИМА!",
+  "achievement_sound": "sounds/minecraft-rare-achievement.mp3",
+  "completion_count": 12,
+  "goal_reached": false
+}

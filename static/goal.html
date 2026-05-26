@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/goal.css">
+</head>
+<body>
+
+<div id="goalScene">
+    <div id="goalBadgeRail" aria-label="Stream contacts">
+        <div class="goalBadge" id="goalSwitchBadge">
+            <img class="goalBadgeIcon" id="goalSwitchIcon" src="/media/icons/kaspi_icon.png" alt="Kaspi">
+            <div class="goalBadgeText" id="goalSwitchText">донат в профиле</div>
+        </div>
+    </div>
+
+    <div id="goalWidget">
+        <div id="goalAchievement" aria-live="polite">
+            <div id="goalAchievementBackdrop"></div>
+
+            <div id="goalAchievementPanel">
+                <div id="goalAchievementIcon" aria-hidden="true">
+                    <div id="goalAchievementIconCore"></div>
+                </div>
+
+                <div id="goalAchievementCopy">
+                    <div id="goalAchievementLabel">ЦЕЛЬ ПО ДОНАТАМ ДОСТИГНУТА!</div>
+                    <div id="goalAchievementText">СПАСИБО ЗА ПОДДЕРЖКУ СТРИМА!</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="goalHead">
+            <div id="goalCopy">
+                <div id="goalTitle"></div>
+                <div id="goalSubtitle"></div>
+            </div>
+            <div id="goalNumbers"></div>
+        </div>
+
+        <div id="progressTrack">
+            <div id="progressFill"></div>
+            <div id="progressText"></div>
+        </div>
+
+        <div id="goalFooter">
+            <div id="goalStatus"></div>
+            <div id="goalPercent"></div>
+        </div>
+
+        <audio id="goalAchievementSound" preload="auto"></audio>
+    </div>
+</div>
+
+<script>
+const goalWidget = document.getElementById("goalWidget");
+const goalTitle = document.getElementById("goalTitle");
+const goalSubtitle = document.getElementById("goalSubtitle");
+const goalNumbers = document.getElementById("goalNumbers");
+const goalStatus = document.getElementById("goalStatus");
+const goalPercent = document.getElementById("goalPercent");
+const progressFill = document.getElementById("progressFill");
+const progressText = document.getElementById("progressText");
+const goalAchievement = document.getElementById("goalAchievement");
+const goalAchievementLabel = document.getElementById("goalAchievementLabel");
+const goalAchievementText = document.getElementById("goalAchievementText");
+const goalAchievementSound = document.getElementById("goalAchievementSound");
+const goalSwitchBadge = document.getElementById("goalSwitchBadge");
+const goalSwitchIcon = document.getElementById("goalSwitchIcon");
+const goalSwitchText = document.getElementById("goalSwitchText");
+const numberFormatter = new Intl.NumberFormat("ru-RU");
+const fallbackAchievementLabel = "ЦЕЛЬ ПО ДОНАТАМ ДОСТИГНУТА!";
+const fallbackAchievementText = "СПАСИБО ЗА ПОДДЕРЖКУ СТРИМА!";
+const goalBadgeFrames = [
+    {
+        icon: "/media/icons/kaspi_icon.png",
+        text: "донат в профиле",
+        alt: "Kaspi"
+    },
+    {
+        icon: "/media/icons/telegram_logo.png",
+        text: "тгк: qxp_bottle",
+        alt: "Telegram"
+    }
+];
+
+let lastCompletionCount = null;
+let achievementTimeout = null;
+let goalBadgeIndex = 0;
+let lastAchievementSoundPath = "";
+
+function rotateGoalBadge() {
+    const frame = goalBadgeFrames[goalBadgeIndex];
+
+    goalSwitchIcon.style.display = "block";
+    goalSwitchIcon.src = frame.icon;
+    goalSwitchIcon.alt = frame.alt;
+    goalSwitchText.textContent = frame.text;
+
+    goalSwitchBadge.classList.remove("is-swapping");
+    void goalSwitchBadge.offsetWidth;
+    goalSwitchBadge.classList.add("is-swapping");
+
+    goalBadgeIndex = (goalBadgeIndex + 1) % goalBadgeFrames.length;
+    setTimeout(rotateGoalBadge, 10000);
+}
+
+function primeAchievementSound(goal) {
+    const soundPath = goal.achievement_sound || goal.celebration_sound || "";
+
+    if (!soundPath || soundPath === lastAchievementSoundPath) {
+        return;
+    }
+
+    lastAchievementSoundPath = soundPath;
+    goalAchievementSound.src = `/media/${encodeURI(soundPath)}`;
+    goalAchievementSound.muted = false;
+    goalAchievementSound.volume = 1;
+    goalAchievementSound.load();
+}
+
+function renderGoal(goal) {
+    const clampedProgress = Math.min(goal.progress_percent, 100);
+    const roundedRawPercent = Math.round(goal.progress_percent_raw);
+
+    goalWidget.classList.toggle("is-complete", goal.goal_reached);
+    goalTitle.textContent = goal.title;
+    goalSubtitle.textContent = goal.subtitle || "";
+    goalSubtitle.classList.toggle("is-hidden", !goal.subtitle);
+    goalNumbers.textContent = `${goal.display_current} / ${goal.display_target} ${goal.currency}`;
+    progressText.textContent = `${goal.display_current} / ${goal.display_target} ${goal.currency}`;
+    progressFill.style.width = `${clampedProgress}%`;
+
+    if (goal.goal_reached && goal.overflow > 0) {
+        goalStatus.textContent = `Сверх цели: ${goal.display_overflow} ${goal.currency}`;
+    } else if (goal.goal_reached) {
+        goalStatus.textContent = "Цель достигнута";
+    } else {
+        goalStatus.textContent = `Осталось ${goal.display_remaining} ${goal.currency}`;
+    }
+
+    goalPercent.textContent = `${roundedRawPercent}%`;
+    goalAchievementLabel.textContent = goal.achievement_label || fallbackAchievementLabel;
+    goalAchievementText.textContent = goal.achievement_text || fallbackAchievementText;
+    primeAchievementSound(goal);
+}
+
+function showAchievement(goal) {
+    if (achievementTimeout) {
+        clearTimeout(achievementTimeout);
+    }
+
+    goalAchievementLabel.textContent = goal.achievement_label || fallbackAchievementLabel;
+    goalAchievementText.textContent = goal.achievement_text || fallbackAchievementText;
+    primeAchievementSound(goal);
+
+    goalAchievementSound.pause();
+    goalAchievementSound.currentTime = 0;
+    goalAchievementSound.muted = false;
+    goalAchievementSound.volume = 1;
+    goalAchievementSound.play().catch((error) => {
+        console.error("GOAL ACHIEVEMENT SOUND ERROR", error);
+    });
+
+    goalAchievement.classList.remove("show");
+    void goalAchievement.offsetWidth;
+    goalAchievement.classList.add("show");
+
+    achievementTimeout = setTimeout(() => {
+        goalAchievement.classList.remove("show");
+    }, 5600);
+}
+
+async function updateGoal() {
+    try {
+        const response = await fetch("/goal", { cache: "no-store" });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const goal = await response.json();
+        renderGoal(goal);
+
+        if (lastCompletionCount !== null && goal.completion_count > lastCompletionCount) {
+            showAchievement(goal);
+        }
+
+        lastCompletionCount = goal.completion_count;
+    } catch (error) {
+        console.error("GOAL UPDATE ERROR", error);
+    }
+}
+
+updateGoal();
+setInterval(updateGoal, 2500);
+
+goalSwitchIcon.addEventListener("error", () => {
+    goalSwitchIcon.style.display = "none";
+});
+
+rotateGoalBadge();
+</script>
+
+</body>
+</html>

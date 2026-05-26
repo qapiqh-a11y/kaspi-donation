@@ -1,0 +1,306 @@
+:root {
+    --bg-top: #120b1f;
+    --bg-bottom: #241038;
+    --panel-top: rgba(34, 18, 58, 0.92);
+    --panel-bottom: rgba(54, 27, 84, 0.86);
+    --panel-border: #c598ff;
+    --panel-shadow: rgba(0, 0, 0, 0.25);
+    --text-main: #f6fcff;
+    --text-soft: #d3c9ff;
+    --accent: #ffe97f;
+    --success: #b0ffe0;
+    --error: #ffb4b4;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+        radial-gradient(circle at top, rgba(186, 120, 255, 0.16), transparent 28%),
+        linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+    color: var(--text-main);
+    font-family: "Press Start 2P", monospace;
+}
+
+.page-shell {
+    width: min(1200px, calc(100vw - 40px));
+    margin: 0 auto;
+    padding: 28px 0 36px;
+}
+
+.hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(280px, 420px);
+    gap: 20px;
+    align-items: stretch;
+    margin-bottom: 20px;
+}
+
+.eyebrow {
+    margin-bottom: 14px;
+    font-size: 11px;
+    color: var(--text-soft);
+    letter-spacing: 2px;
+    text-shadow: 0 2px 0 #7a5fd7;
+}
+
+h1,
+h2 {
+    margin: 0;
+    font-weight: normal;
+}
+
+h1 {
+    font-size: clamp(22px, 2vw, 36px);
+    line-height: 1.3;
+    color: #fff8c2;
+    text-shadow:
+        0 2px 0 #ffffff,
+        0 5px 0 #9b78ff,
+        0 8px 0 #5b38c4;
+}
+
+.hero-copy {
+    max-width: 700px;
+    margin: 18px 0 0;
+    line-height: 1.8;
+    color: var(--text-soft);
+    font-size: 12px;
+}
+
+.hero-card,
+.card {
+    position: relative;
+    overflow: hidden;
+    border: 4px solid var(--panel-border);
+    background: linear-gradient(180deg, var(--panel-top), var(--panel-bottom));
+    box-shadow:
+        0 0 0 4px rgba(255, 255, 255, 0.14),
+        0 16px 34px var(--panel-shadow);
+}
+
+.hero-card::before,
+.card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 22%),
+        repeating-linear-gradient(
+            180deg,
+            rgba(255, 255, 255, 0.04) 0,
+            rgba(255, 255, 255, 0.04) 2px,
+            transparent 2px,
+            transparent 8px
+        );
+    pointer-events: none;
+    opacity: 0.72;
+}
+
+.hero-card {
+    padding: 20px 22px 22px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.hero-card-label,
+.card-tag {
+    position: relative;
+    z-index: 1;
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--text-soft);
+    text-shadow: 0 2px 0 #7a60d7;
+}
+
+.hero-card-title {
+    position: relative;
+    z-index: 1;
+    margin-top: 18px;
+    line-height: 1.45;
+    color: #fff8c2;
+}
+
+.hero-card-value {
+    position: relative;
+    z-index: 1;
+    margin-top: 18px;
+    font-family: "VT323", monospace;
+    font-size: clamp(34px, 2.4vw, 46px);
+    color: #ffffff;
+    text-shadow:
+        0 2px 0 #8c6cf0,
+        0 0 16px rgba(164, 255, 225, 0.24);
+}
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+}
+
+.card {
+    padding: 20px;
+}
+
+.card-head {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.form-stack {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    gap: 16px;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+label {
+    display: grid;
+    gap: 8px;
+}
+
+label span {
+    font-size: 10px;
+    color: var(--text-soft);
+}
+
+input {
+    width: 100%;
+    border: 3px solid rgba(255, 255, 255, 0.24);
+    background: rgba(4, 19, 31, 0.74);
+    color: var(--text-main);
+    padding: 12px 14px;
+    font-family: "VT323", monospace;
+    font-size: 28px;
+    outline: none;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+input:focus {
+    border-color: var(--panel-border);
+}
+
+.actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+button {
+    border: 3px solid #b9ffe1;
+    background: linear-gradient(180deg, #d7ffe9, #8ff0c7);
+    color: #213041;
+    padding: 12px 16px 10px;
+    font-family: "Press Start 2P", monospace;
+    font-size: 11px;
+    cursor: pointer;
+    box-shadow:
+        0 6px 0 rgba(73, 176, 124, 0.5),
+        0 10px 18px rgba(0, 0, 0, 0.14);
+}
+
+.ghost-button {
+    border-color: #c598ff;
+    background: linear-gradient(180deg, #ead7ff, #bc92ff);
+    box-shadow:
+        0 6px 0 rgba(116, 82, 197, 0.48),
+        0 10px 18px rgba(0, 0, 0, 0.14);
+}
+
+.status-message {
+    position: relative;
+    z-index: 1;
+    min-height: 24px;
+    margin-top: 16px;
+    font-size: 10px;
+    line-height: 1.6;
+    color: var(--text-soft);
+}
+
+.status-message[data-state="success"] {
+    color: var(--success);
+}
+
+.status-message[data-state="error"] {
+    color: var(--error);
+}
+
+.link-list {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    gap: 12px;
+}
+
+.overlay-link {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px;
+    text-decoration: none;
+    color: var(--text-main);
+    border: 3px solid rgba(255, 255, 255, 0.22);
+    background: rgba(30, 16, 48, 0.62);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.16),
+        0 8px 0 rgba(109, 82, 196, 0.44);
+}
+
+.overlay-link span {
+    font-size: 11px;
+    color: var(--text-soft);
+}
+
+.overlay-link strong {
+    font-family: "VT323", monospace;
+    font-size: 30px;
+    color: var(--accent);
+    font-weight: normal;
+    text-shadow:
+        0 2px 0 #7b63da,
+        0 0 14px rgba(163, 255, 225, 0.18);
+}
+
+@media (max-width: 1050px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 900px) {
+    .page-shell {
+        width: calc(100vw - 24px);
+        padding: 12px 0 24px;
+    }
+
+    .hero {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 720px) {
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+
+    .actions {
+        flex-direction: column;
+    }
+}
