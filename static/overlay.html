@@ -35,8 +35,13 @@ const messageNode = document.getElementById("message");
 const donateSound = document.getElementById("donateSound");
 const ttsSound = document.getElementById("ttsSound");
 
-let lastId = "";
-let hideTimeout = null;
+const seenEventIds = new Set();
+const alertQueue = [];
+const MAX_ALERT_DURATION_MS = 30000;
+const DONATE_EVENT_TTL_MS = 120000;
+
+let isAlertActive = false;
+let finishTimeout = null;
 
 function getAmountParts(rawAmount) {
     const trimmed = String(rawAmount || "").trim();
@@ -66,6 +71,51 @@ function normalizeCurrency(currency) {
     return currency;
 }
 
+function getDonateEventId(data) {
+    if (!data || typeof data !== "object") {
+        return "";
+    }
+
+    const eventId = String(data.id || data.tts || "").trim();
+    if (!eventId || !data.amount || !data.gif || !data.sound) {
+        return "";
+    }
+
+    if (data.created_at && Date.now() - Number(data.created_at) > DONATE_EVENT_TTL_MS) {
+        return "";
+    }
+
+    return eventId;
+}
+
+function rememberEventId(eventId) {
+    seenEventIds.add(eventId);
+
+    if (seenEventIds.size > 50) {
+        seenEventIds.delete(seenEventIds.values().next().value);
+    }
+}
+
+function enqueueAlert(data) {
+    alertQueue.push(data);
+
+    if (!isAlertActive) {
+        playNextAlert();
+    }
+}
+
+function playNextAlert() {
+    const nextAlert = alertQueue.shift();
+
+    if (!nextAlert) {
+        isAlertActive = false;
+        return;
+    }
+
+    isAlertActive = true;
+    showAlert(nextAlert);
+}
+
 async function checkDonate() {
     try {
         const response = await fetch("/last", { cache: "no-store" });
@@ -74,25 +124,26 @@ async function checkDonate() {
         }
 
         const data = await response.json();
+        const eventId = getDonateEventId(data);
 
-        const eventId = data.id || data.tts || `${data.name}-${data.amount_number}-${data.message}`;
-
-        if (!eventId || eventId === lastId) {
+        if (!eventId || seenEventIds.has(eventId)) {
             return;
         }
 
-        lastId = eventId;
-        showAlert(data);
+        rememberEventId(eventId);
+        enqueueAlert(data);
     } catch (error) {
         console.error("OVERLAY UPDATE ERROR", error);
     }
 }
 
 function showAlert(data) {
-    if (hideTimeout) {
-        clearTimeout(hideTimeout);
+    if (finishTimeout) {
+        clearTimeout(finishTimeout);
     }
 
+    donateSound.onended = null;
+    ttsSound.onended = null;
     donateSound.pause();
     ttsSound.pause();
     donateSound.currentTime = 0;
@@ -100,7 +151,7 @@ function showAlert(data) {
 
     const amountParts = getAmountParts(data.amount);
 
-    amountNode.textContent = `+ ${amountParts.value || data.amount}`;
+    amountNode.textContent = `+ ${amountParts.value || data.amount || ""}`;
     currencyBadgeNode.textContent = amountParts.currency;
     currencyBadgeNode.classList.toggle("is-hidden", !amountParts.currency);
     currencyBadgeNode.dataset.currency = amountParts.currency || "none";
@@ -125,19 +176,32 @@ function showAlert(data) {
     void alertBox.offsetWidth;
     alertBox.classList.add("show");
 
-    donateSound.play().catch(() => {});
-    donateSound.onended = () => {
+    const playTtsOrFinish = () => {
         if (ttsAudioSource) {
-            ttsSound.play().catch(() => {});
+            ttsSound.play().catch(finishAlert);
+            return;
         }
+
+        finishAlert();
     };
 
-    ttsSound.onended = ttsAudioSource ? hideAlert : null;
-    hideTimeout = setTimeout(hideAlert, 12000);
+    donateSound.onended = playTtsOrFinish;
+    ttsSound.onended = ttsAudioSource ? finishAlert : null;
+    donateSound.play().catch(playTtsOrFinish);
+    finishTimeout = setTimeout(finishAlert, MAX_ALERT_DURATION_MS);
 }
 
-function hideAlert() {
+function finishAlert() {
+    if (finishTimeout) {
+        clearTimeout(finishTimeout);
+        finishTimeout = null;
+    }
+
     alertBox.classList.remove("show");
+    donateSound.onended = null;
+    ttsSound.onended = null;
+
+    setTimeout(playNextAlert, 400);
 }
 
 checkDonate();

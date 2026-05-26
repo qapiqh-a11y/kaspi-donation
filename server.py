@@ -8,6 +8,7 @@ import json
 import os
 import re
 import subprocess
+import time
 import uuid
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -396,6 +397,7 @@ def process_donation(name, amount_number, message="", amount_text=None, apply_al
 
     last_donate = {
         "id": uuid.uuid4().hex,
+        "created_at": int(time.time() * 1000),
         "amount": clean_amount_text,
         "amount_number": clean_amount,
         "name": clean_name,
@@ -448,7 +450,9 @@ def donate():
 
 @app.route("/last")
 def last():
-    return jsonify(last_donate)
+    response = jsonify(last_donate)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return response
 
 
 @app.route("/top")
@@ -505,24 +509,30 @@ def goal_test_achievement():
     return jsonify({"status": "ok", "goal": build_goal_payload(load_goal_data())})
 
 
+def serve_static_html(filename):
+    response = send_from_directory(str(STATIC_DIR), filename)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return response
+
+
 @app.route("/overlay")
 def overlay():
-    return send_from_directory(str(STATIC_DIR), "overlay.html")
+    return serve_static_html("overlay.html")
 
 
 @app.route("/topview")
 def topview():
-    return send_from_directory(str(STATIC_DIR), "top.html")
+    return serve_static_html("top.html")
 
 
 @app.route("/goalview")
 def goalview():
-    return send_from_directory(str(STATIC_DIR), "goal.html")
+    return serve_static_html("goal.html")
 
 
 @app.route("/dashboard")
 def dashboard():
-    return send_from_directory(str(STATIC_DIR), "dashboard.html")
+    return serve_static_html("dashboard.html")
 
 
 @app.route("/media/<path:filename>")
@@ -542,7 +552,7 @@ def home():
 
 @app.route("/")
 def root():
-    return send_from_directory(str(STATIC_DIR), "dashboard.html")
+    return serve_static_html("dashboard.html")
 
 
 donate_totals = load_donate_totals()
