@@ -35,10 +35,12 @@ const messageNode = document.getElementById("message");
 const donateSound = document.getElementById("donateSound");
 const ttsSound = document.getElementById("ttsSound");
 
-const seenEventIds = new Set();
+const SEEN_EVENTS_STORAGE_KEY = "kaspi-donation-seen-events";
+const OVERLAY_STARTED_AT = Date.now();
+const seenEventIds = loadSeenEventIds();
 const alertQueue = [];
 const MAX_ALERT_DURATION_MS = 30000;
-const DONATE_EVENT_TTL_MS = 120000;
+const DONATE_EVENT_TTL_MS = 30000;
 
 let isAlertActive = false;
 let finishTimeout = null;
@@ -71,6 +73,31 @@ function normalizeCurrency(currency) {
     return currency;
 }
 
+function loadSeenEventIds() {
+    try {
+        const storedIds = JSON.parse(localStorage.getItem(SEEN_EVENTS_STORAGE_KEY) || "[]");
+        return new Set(Array.isArray(storedIds) ? storedIds.slice(-50) : []);
+    } catch (error) {
+        return new Set();
+    }
+}
+
+function saveSeenEventIds() {
+    try {
+        localStorage.setItem(SEEN_EVENTS_STORAGE_KEY, JSON.stringify([...seenEventIds].slice(-50)));
+    } catch (error) {}
+}
+
+function buildMediaUrl(mediaPath) {
+    const cleanPath = String(mediaPath || "").trim();
+
+    if (!cleanPath || cleanPath === "undefined" || cleanPath === "null") {
+        return "";
+    }
+
+    return `/media/${encodeURI(cleanPath)}`;
+}
+
 function getDonateEventId(data) {
     if (!data || typeof data !== "object") {
         return "";
@@ -94,6 +121,8 @@ function rememberEventId(eventId) {
     if (seenEventIds.size > 50) {
         seenEventIds.delete(seenEventIds.values().next().value);
     }
+
+    saveSeenEventIds();
 }
 
 function enqueueAlert(data) {
@@ -118,7 +147,11 @@ function playNextAlert() {
 
 async function checkDonate() {
     try {
-        const response = await fetch("/last", { cache: "no-store" });
+        const response = await fetch(`/last?after=${OVERLAY_STARTED_AT}`, { cache: "no-store" });
+        if (response.status === 204) {
+            return;
+        }
+
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
@@ -138,6 +171,11 @@ async function checkDonate() {
 }
 
 function showAlert(data) {
+    if (!getDonateEventId(data)) {
+        playNextAlert();
+        return;
+    }
+
     if (finishTimeout) {
         clearTimeout(finishTimeout);
     }
@@ -160,12 +198,25 @@ function showAlert(data) {
     messageNode.textContent = data.message || "СПАСИБО ЗА ПОДДЕРЖКУ";
     messageNode.classList.toggle("is-empty", !data.message);
 
-    gifNode.src = `/media/${encodeURI(data.gif)}`;
-    gifNode.style.display = data.gif ? "block" : "none";
+    const gifSource = buildMediaUrl(data.gif);
+    const donateAudioSource = buildMediaUrl(data.sound);
+    const isLocalHost = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+    const ttsAudioSource = data.tts_data_url || (isLocalHost ? buildMediaUrl(data.tts) : "");
 
-    const ttsAudioSource = data.tts_data_url || (data.tts ? `/media/${encodeURI(data.tts)}` : "");
+    if (gifSource) {
+        gifNode.src = gifSource;
+        gifNode.style.display = "block";
+    } else {
+        gifNode.removeAttribute("src");
+        gifNode.style.display = "none";
+    }
 
-    donateSound.src = `/media/${encodeURI(data.sound)}`;
+    if (donateAudioSource) {
+        donateSound.src = donateAudioSource;
+    } else {
+        donateSound.removeAttribute("src");
+    }
+
     if (ttsAudioSource) {
         ttsSound.src = ttsAudioSource;
     } else {
@@ -187,11 +238,22 @@ function showAlert(data) {
 
     donateSound.onended = playTtsOrFinish;
     ttsSound.onended = ttsAudioSource ? finishAlert : null;
-    donateSound.play().catch(playTtsOrFinish);
+    if (donateAudioSource) {
+        donateSound.play().catch(playTtsOrFinish);
+    } else {
+        playTtsOrFinish();
+    }
+
     finishTimeout = setTimeout(finishAlert, MAX_ALERT_DURATION_MS);
 }
 
 function finishAlert() {
+    if (!isAlertActive) {
+        return;
+    }
+
+    isAlertActive = false;
+
     if (finishTimeout) {
         clearTimeout(finishTimeout);
         finishTimeout = null;
@@ -201,7 +263,11 @@ function finishAlert() {
     donateSound.onended = null;
     ttsSound.onended = null;
 
-    setTimeout(playNextAlert, 400);
+    setTimeout(() => {
+        if (!isAlertActive) {
+            playNextAlert();
+        }
+    }, 400);
 }
 
 checkDonate();

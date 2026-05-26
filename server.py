@@ -19,6 +19,7 @@ CORS(app)
 
 BASE_DIR = Path(__file__).resolve().parent
 RUNNING_ON_VERCEL = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_URL"))
+LAST_DONATE_TTL_MS = 30000
 STATIC_DIR = BASE_DIR / "static"
 DATA_DIR = BASE_DIR / "data"
 ASSETS_DIR = BASE_DIR / "assets"
@@ -339,6 +340,19 @@ def build_tts_data_url(media_path):
     return f"data:audio/mpeg;base64,{encoded_audio}"
 
 
+def is_valid_donate_event(donation):
+    if not isinstance(donation, dict):
+        return False
+
+    required_fields = ("id", "created_at", "amount", "gif", "sound")
+    return all(donation.get(field) for field in required_fields)
+
+
+def is_donate_event_expired(donation, now_ms):
+    created_at = coerce_int(donation.get("created_at"), 0)
+    return not created_at or now_ms - created_at > LAST_DONATE_TTL_MS
+
+
 def generate_tts_file(name, amount_text, message):
     if message:
         tts_text = f"{name} задонатил {amount_text}. {message}"
@@ -450,6 +464,21 @@ def donate():
 
 @app.route("/last")
 def last():
+    global last_donate
+
+    now_ms = int(time.time() * 1000)
+    after_ms = max(0, coerce_int(request.args.get("after"), 0))
+
+    if (
+        not is_valid_donate_event(last_donate)
+        or is_donate_event_expired(last_donate, now_ms)
+        or coerce_int(last_donate.get("created_at"), 0) <= after_ms
+    ):
+        last_donate = {}
+        response = app.response_class(status=204)
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        return response
+
     response = jsonify(last_donate)
     response.headers["Cache-Control"] = "no-store, max-age=0"
     return response
