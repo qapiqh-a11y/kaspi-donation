@@ -112,9 +112,11 @@ function showAlert(data) {
     gifNode.src = `/media/${encodeURI(data.gif)}`;
     gifNode.style.display = data.gif ? "block" : "none";
 
+    const ttsAudioSource = data.tts_data_url || (data.tts ? `/media/${encodeURI(data.tts)}` : "");
+
     donateSound.src = `/media/${encodeURI(data.sound)}`;
-    if (data.tts) {
-        ttsSound.src = `/media/${encodeURI(data.tts)}`;
+    if (ttsAudioSource) {
+        ttsSound.src = ttsAudioSource;
     } else {
         ttsSound.removeAttribute("src");
     }
@@ -125,12 +127,12 @@ function showAlert(data) {
 
     donateSound.play().catch(() => {});
     donateSound.onended = () => {
-        if (data.tts) {
+        if (ttsAudioSource) {
             ttsSound.play().catch(() => {});
         }
     };
 
-    ttsSound.onended = data.tts ? hideAlert : null;
+    ttsSound.onended = ttsAudioSource ? hideAlert : null;
     hideTimeout = setTimeout(hideAlert, 12000);
 }
 

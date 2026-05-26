@@ -5,6 +5,7 @@ requires-python = ">=3.12,<3.15"
 dependencies = [
   "Flask>=3.0,<4",
   "Flask-Cors>=4.0,<7",
+  "edge-tts>=7.2.8,<8",
 ]
 
 [project.scripts]

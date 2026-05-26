@@ -2,6 +2,8 @@ from copy import deepcopy
 from pathlib import Path
 from urllib.parse import unquote_plus
 
+import asyncio
+import base64
 import json
 import os
 import re
@@ -23,6 +25,7 @@ EFFECTS_DIR = ASSETS_DIR / "effects"
 SOUNDS_DIR = ASSETS_DIR / "sounds"
 ICONS_DIR = ASSETS_DIR / "icons"
 TTS_DIR = ASSETS_DIR / "tts"
+TTS_STORAGE_DIR = Path(os.environ.get("TMPDIR", "/tmp")) / "kaspi-donation-tts" if RUNNING_ON_VERCEL else TTS_DIR
 DATA_FILE = DATA_DIR / "donate_totals.json"
 ALIASES_FILE = DATA_DIR / "aliases.json"
 GOAL_FILE = DATA_DIR / "goal.json"
@@ -293,34 +296,74 @@ def choose_effects(amount_number):
     return "effects/kiss-ronaldo.gif", "sounds/kiss-ronaldo.MP3"
 
 
-def generate_tts_file(name, amount_text, message):
-    if RUNNING_ON_VERCEL:
+def save_tts_with_edge_tts(tts_text, tts_file):
+    try:
+        import edge_tts
+    except ImportError:
+        return False
+
+    async def save_audio():
+        communicate = edge_tts.Communicate(tts_text, "ru-RU-DmitryNeural")
+        await communicate.save(str(tts_file))
+
+    asyncio.run(save_audio())
+    return True
+
+
+def resolve_tts_file(media_path):
+    clean_path = normalize_media_path(media_path, "tts")
+
+    if not clean_path.startswith("tts/"):
+        return None
+
+    tts_filename = clean_path.split("/", 1)[1].strip()
+    if not tts_filename:
+        return None
+
+    return TTS_STORAGE_DIR / tts_filename
+
+
+def build_tts_data_url(media_path):
+    tts_file = resolve_tts_file(media_path)
+
+    if not tts_file or not tts_file.exists():
         return ""
 
+    try:
+        encoded_audio = base64.b64encode(tts_file.read_bytes()).decode("ascii")
+    except OSError as error:
+        safe_print("TTS READ ERROR:", error)
+        return ""
+
+    return f"data:audio/mpeg;base64,{encoded_audio}"
+
+
+def generate_tts_file(name, amount_text, message):
     if message:
         tts_text = f"{name} задонатил {amount_text}. {message}"
     else:
         tts_text = f"{name} задонатил {amount_text}"
 
     tts_filename = f"tts_{uuid.uuid4().hex}.mp3"
-    tts_file = TTS_DIR / tts_filename
+    tts_file = TTS_STORAGE_DIR / tts_filename
 
     try:
-        TTS_DIR.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            [
-                "edge-tts",
-                "--voice",
-                "ru-RU-DmitryNeural",
-                "--text",
-                tts_text,
-                "--write-media",
-                str(tts_file),
-            ],
-            check=True,
-            timeout=20,
-        )
-    except (OSError, subprocess.SubprocessError) as error:
+        TTS_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+        if not save_tts_with_edge_tts(tts_text, tts_file):
+            subprocess.run(
+                [
+                    "edge-tts",
+                    "--voice",
+                    "ru-RU-DmitryNeural",
+                    "--text",
+                    tts_text,
+                    "--write-media",
+                    str(tts_file),
+                ],
+                check=True,
+                timeout=20,
+            )
+    except Exception as error:
         safe_print("TTS ERROR:", error)
         return ""
 
@@ -358,6 +401,7 @@ def process_donation(name, amount_number, message="", amount_text=None, apply_al
         "name": clean_name,
         "message": clean_message,
         "tts": tts_file,
+        "tts_data_url": build_tts_data_url(tts_file),
         "gif": gif_file,
         "sound": sound_file,
         "goal_completed": goal_completed,
@@ -483,6 +527,11 @@ def dashboard():
 
 @app.route("/media/<path:filename>")
 def media(filename):
+    if filename.startswith("tts/"):
+        tts_filename = filename.split("/", 1)[1].strip()
+        if tts_filename:
+            return send_from_directory(str(TTS_STORAGE_DIR), tts_filename)
+
     return send_from_directory(str(ASSETS_DIR), filename)
 
 
