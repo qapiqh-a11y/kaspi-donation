@@ -9,6 +9,8 @@ import os
 import re
 import subprocess
 import time
+import urllib.error
+import urllib.request
 import uuid
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -20,6 +22,17 @@ CORS(app)
 BASE_DIR = Path(__file__).resolve().parent
 RUNNING_ON_VERCEL = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_URL"))
 LAST_DONATE_TTL_MS = 30000
+KV_REST_API_URL = (
+    os.environ.get("KV_REST_API_URL")
+    or os.environ.get("UPSTASH_REDIS_REST_URL")
+    or ""
+).rstrip("/")
+KV_REST_API_TOKEN = (
+    os.environ.get("KV_REST_API_TOKEN")
+    or os.environ.get("UPSTASH_REDIS_REST_TOKEN")
+    or ""
+)
+STORAGE_KEY_PREFIX = os.environ.get("KASPI_STORAGE_KEY_PREFIX", "kaspi-donation")
 STATIC_DIR = BASE_DIR / "static"
 DATA_DIR = BASE_DIR / "data"
 ASSETS_DIR = BASE_DIR / "assets"
@@ -68,6 +81,75 @@ def safe_print(*values, **kwargs):
         print(safe_text, end=end, file=file, flush=flush)
 
 
+def kv_is_configured():
+    return bool(KV_REST_API_URL and KV_REST_API_TOKEN)
+
+
+def storage_mode():
+    if kv_is_configured():
+        return "kv"
+    if RUNNING_ON_VERCEL:
+        return "memory"
+    return "json"
+
+
+def kv_storage_key(name):
+    return f"{STORAGE_KEY_PREFIX}:{name}"
+
+
+def kv_command(*command):
+    if not kv_is_configured():
+        return None
+
+    body = json.dumps(list(command), ensure_ascii=False).encode("utf-8")
+    request_options = urllib.request.Request(
+        KV_REST_API_URL,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {KV_REST_API_TOKEN}",
+            "Content-Type": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(request_options, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+        safe_print("KV ERROR:", error)
+        return None
+
+    if isinstance(payload, dict) and payload.get("error"):
+        safe_print("KV ERROR:", payload["error"])
+        return None
+
+    return payload.get("result") if isinstance(payload, dict) else None
+
+
+def kv_get_json(name):
+    result = kv_command("GET", kv_storage_key(name))
+    if result is None:
+        return None
+
+    if isinstance(result, (dict, list)):
+        return result
+
+    try:
+        return json.loads(str(result))
+    except json.JSONDecodeError as error:
+        safe_print("KV JSON ERROR:", error)
+        return None
+
+
+def kv_set_json(name, data):
+    result = kv_command(
+        "SET",
+        kv_storage_key(name),
+        json.dumps(data, ensure_ascii=False),
+    )
+    return result == "OK"
+
+
 def load_json_file(path, default):
     if not path.exists():
         return deepcopy(default)
@@ -88,6 +170,29 @@ def save_json_file(path, data):
     except OSError as error:
         safe_print(f"JSON SAVE WARNING: {path}: {error}")
         return False
+
+
+def load_persistent_json(name, path, default):
+    kv_data = kv_get_json(name)
+    if kv_data is not None:
+        return kv_data
+
+    local_data = load_json_file(path, default)
+
+    if kv_is_configured():
+        kv_set_json(name, local_data)
+
+    return local_data
+
+
+def save_persistent_json(name, path, data):
+    saved_to_kv = kv_set_json(name, data)
+    saved_to_file = False if RUNNING_ON_VERCEL else save_json_file(path, data)
+
+    if RUNNING_ON_VERCEL and not saved_to_kv:
+        safe_print("PERSISTENCE WARNING: KV is not configured; data will reset on cold start.")
+
+    return saved_to_kv or saved_to_file
 
 
 def coerce_int(value, fallback=0):
@@ -152,7 +257,7 @@ def load_aliases():
 
 
 def load_donate_totals():
-    raw_totals = load_json_file(DATA_FILE, {})
+    raw_totals = load_persistent_json("donate_totals", DATA_FILE, {})
     totals = {}
 
     if not isinstance(raw_totals, dict):
@@ -166,7 +271,7 @@ def load_donate_totals():
 
 
 def save_totals():
-    save_json_file(DATA_FILE, donate_totals)
+    save_persistent_json("donate_totals", DATA_FILE, donate_totals)
 
 
 def normalize_goal_data(raw_goal):
@@ -213,15 +318,15 @@ def normalize_goal_data(raw_goal):
 def load_goal_data():
     global goal_cache
 
-    if RUNNING_ON_VERCEL and goal_cache is not None:
+    if RUNNING_ON_VERCEL and goal_cache is not None and not kv_is_configured():
         return deepcopy(goal_cache)
 
-    raw_goal = load_json_file(GOAL_FILE, DEFAULT_GOAL)
+    raw_goal = load_persistent_json("goal", GOAL_FILE, DEFAULT_GOAL)
     goal = normalize_goal_data(raw_goal)
     goal_cache = goal
 
     if raw_goal != goal:
-        save_json_file(GOAL_FILE, goal)
+        save_persistent_json("goal", GOAL_FILE, goal)
 
     return deepcopy(goal)
 
@@ -230,7 +335,7 @@ def save_goal_data(goal):
     global goal_cache
 
     goal_cache = normalize_goal_data(goal)
-    save_json_file(GOAL_FILE, goal_cache)
+    save_persistent_json("goal", GOAL_FILE, goal_cache)
 
 
 def build_goal_payload(goal):
@@ -270,6 +375,11 @@ def apply_goal_donation(amount_number):
 
 
 def get_top_donors(limit=5):
+    global donate_totals
+
+    if kv_is_configured():
+        donate_totals = load_donate_totals()
+
     positive_totals = [
         (name, total) for name, total in donate_totals.items() if coerce_int(total) > 0
     ]
@@ -418,6 +528,9 @@ def process_donation(name, amount_number, message="", amount_text=None, apply_al
             safe_print(f"ALIAS APPLIED: {clean_name} -> {aliases[clean_name]}")
             clean_name = aliases[clean_name]
 
+    if kv_is_configured():
+        donate_totals = load_donate_totals()
+
     donate_totals[clean_name] = donate_totals.get(clean_name, 0) + clean_amount
     save_totals()
 
@@ -503,6 +616,26 @@ def last():
 @app.route("/top")
 def top():
     return jsonify(get_top_donors())
+
+
+@app.route("/top/update", methods=["POST"])
+def top_update():
+    global donate_totals
+
+    payload = request.get_json(silent=True) or request.form
+    clean_name = sanitize_name(payload.get("name", ""))
+    total = max(0, coerce_int(payload.get("total"), 0))
+
+    if kv_is_configured():
+        donate_totals = load_donate_totals()
+
+    if total > 0:
+        donate_totals[clean_name] = total
+    else:
+        donate_totals.pop(clean_name, None)
+
+    save_totals()
+    return jsonify({"status": "ok", "top": get_top_donors()})
 
 
 @app.route("/goal")
@@ -598,7 +731,7 @@ def media(filename):
 
 @app.route("/health")
 def home():
-    return "Kaspi Donate PRO FULL running 🔥"
+    return f"Kaspi Donate PRO FULL running | storage={storage_mode()}"
 
 
 @app.route("/")
